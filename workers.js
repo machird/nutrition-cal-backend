@@ -7,12 +7,10 @@ const corsHeaders = {
 
 export default {
     async fetch(request, env) {
-        // Preflight (OPTIONS) リクエストへの対応
         if (request.method === 'OPTIONS') {
             return new Response(null, { headers: corsHeaders });
         }
 
-        // POST以外のメソッドは拒否
         if (request.method !== 'POST') {
             return new Response(JSON.stringify({ error: 'Method Not Allowed' }), {
                 status: 405,
@@ -21,26 +19,20 @@ export default {
         }
 
         try {
-            // クライアントのIPアドレスを取得（Cloudflareが自動付与）
             const clientIP = request.headers.get('CF-Connecting-IP') || '127.0.0.1';
-            
-            // 日本時間の今日の日付文字列を作成 (YYYY-MM-DD)
             const now = new Date();
             const jstOffset = 9 * 60 * 60 * 1000;
             const jstDate = new Date(now.getTime() + jstOffset);
             const todayStr = jstDate.toISOString().split('T')[0];
             
-            // KVデータベース用のキーを作成
             const kvKey = `limit:${clientIP}:${todayStr}`;
 
-            // Workers KVから本日の利用回数を取得
             let currentCount = 0;
             if (env.LIMIT_KV) {
                 const storedValue = await env.LIMIT_KV.get(kvKey);
                 currentCount = storedValue ? parseInt(storedValue, 10) : 0;
             }
 
-            // 1日20回を超えているか判定
             const MAX_DAILY_LIMIT = 20;
             if (currentCount >= MAX_DAILY_LIMIT) {
                 return new Response(JSON.stringify({
@@ -67,13 +59,11 @@ export default {
                 });
             }
 
-            // 利用回数を＋1してKVに保存（有効期限24時間 = 86400秒）
             const newCount = currentCount + 1;
             if (env.LIMIT_KV) {
                 await env.LIMIT_KV.put(kvKey, newCount.toString(), { expirationTtl: 86400 });
             }
 
-            // 残り計算可能回数
             const remaining = Math.max(0, MAX_DAILY_LIMIT - newCount);
 
             return new Response(JSON.stringify({
@@ -103,16 +93,13 @@ function calculateGeneral(data) {
     const bmr = ((0.1238 + 0.0481 * weight + 0.0234 * height - 0.0138 * age - 0.5473 * gender) * 1000) / 4.186;
     const tee = bmr * activity * stress;
 
-    // 体重調整 (7,200 kcal/kg)
     const totalAdjustKcal = (finalTargetWeight - weight) * 7200;
     const dailyAdjustKcal = totalAdjustKcal / (finalMonths * 30);
     const goalEnergy = tee + dailyAdjustKcal;
 
-    // タンパク質計算
     const pFactor = (activity <= 1.2) ? 1.0 : (activity >= 1.7 ? 1.5 : 1.1);
     const protein = weight * pFactor;
 
-    // 必要水分量と注意書き（Worker側で計算）
     const waterFactor = age >= 65 ? 30 : 35;
     const water = weight * waterFactor;
     const waterNote = age >= 65 
