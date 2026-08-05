@@ -1,17 +1,5 @@
-
-eof
-
-### ⚠️ この構成で確認すべき重要ポイント3点
-
-1. **`wrangler.json` の名前**:
-   `"name"` が **`"nutritioncal-app"`** になっているか確認してください。
-
-2. **ファイル名の一致**:
-   GitHub上のファイル名は **`worker.js`** ですか？それとも **`workers.js`**（最後にsが付く）ですか？
-   `wrangler.json` の `"main"` に書く名前と、GitHubの実際のファイル名を完全に一致させる必要があります（例: `worker.js` なら `"main": "worker.js"`）。
-
-3. **`index.html` 内のURL設定**:
-   `nutrition-cal-frontend` 側にある `index.html` の291行目あたりのURLが以下になっているかご確認ください。
-   `const WORKER_URL = 'https://nutritioncal-app.rdmachi.workers.dev';`
-
-この3点が揃っていれば、GitHubで `wrangler.json` を保存（Commit）したタイミングでビルドが成功します！
+{
+  "name": "nutritioncal-app",
+  "main": "workers.js",
+  "compatibility_date": "2024-01-01"
+}
