@@ -1,11 +1,5 @@
 {
   "name": "nutritionalcal-app",
   "main": "workers.js",
-  "compatibility_date": "2024-01-01",
-  "kv_namespaces": [
-    {
-      "binding": "LIMIT_KV",
-      "id": "YOUR_KV_NAMESPACE_ID"
-    }
-  ]
+  "compatibility_date": "2024-01-01"
 }
