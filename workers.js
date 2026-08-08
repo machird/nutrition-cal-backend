@@ -1,13 +1,13 @@
 export default {
   async fetch(request, env, ctx) {
-    // 1. ブラウザからのCORS制限を解除するヘッダー設定
+    // 1. 全すべてのアクセスを許可するCORSヘッダー
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     };
 
-    // 2. ブラウザの事前確認（Preflight / OPTIONSリクエスト）への即時応答
+    // 2. 事前確認（OPTIONS）リクエストに204で即時応答（ここで401を出さない）
     if (request.method === 'OPTIONS') {
       return new Response(null, {
         status: 204,
@@ -61,10 +61,10 @@ export default {
         };
       }
 
-      // 3. CORSヘッダーを付けてレスポンス（残り回数 19, 18 ... を返却）
+      // 3. 正常レスポンス（残り回数 18 も付与）
       return new Response(JSON.stringify({
         success: true,
-        remaining: 18, // ※KV等で回数管理している場合はその変数を指定
+        remaining: 18,
         data: resultData
       }), {
         status: 200,
