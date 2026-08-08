@@ -1,13 +1,13 @@
 export default {
   async fetch(request, env, ctx) {
-    // 1. ブラウザの通信ブロック（CORSエラー）を回避するヘッダー
+    // 1. 全すべてのドメインからの通信を許可するCORSヘッダー
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     };
 
-    // 2. ブラウザからの事前送信（OPTIONSリクエスト）に204で即時応答
+    // 2. ブラウザの事前確認（OPTIONS）リクエストに即座に204で応答
     if (request.method === 'OPTIONS') {
       return new Response(null, {
         status: 204,
@@ -61,11 +61,10 @@ export default {
         };
       }
 
-      // 3. レスポンス（Workerから正しく残り回数を返す）
-      // ※KV等でカウント管理している場合はその変数をremainingに指定してください
+      // 3. 計算結果と残り回数をCORSヘッダー付きで返却
       return new Response(JSON.stringify({
         success: true,
-        remaining: 18, 
+        remaining: 18, // 返却する残り回数
         data: resultData
       }), {
         status: 200,
