@@ -1,13 +1,13 @@
 export default {
   async fetch(request, env, ctx) {
-    // 1. 全すべてのアクセスを許可するCORSヘッダーの設定
+    // 1. ブラウザからのCORS制限を解除するヘッダー設定
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type',
     };
 
-    // 2. ブラウザからの事前確認（OPTIONSリクエスト）への応答
+    // 2. ブラウザの事前確認（Preflight / OPTIONSリクエスト）への即時応答
     if (request.method === 'OPTIONS') {
       return new Response(null, {
         status: 204,
@@ -16,7 +16,6 @@ export default {
     }
 
     try {
-      // POSTリクエスト以外は拒否
       if (request.method !== 'POST') {
         return new Response(JSON.stringify({ error: 'Method not allowed' }), {
           status: 405,
@@ -27,8 +26,6 @@ export default {
       const body = await request.json();
       const mode = body.mode;
 
-      // KVやDurable Objectsでカウントを管理している場合はここで行いますが、
-      // 動作確認用に残り回数を返却する計算ロジック例です
       let resultData = {};
 
       if (mode === 'general') {
@@ -64,10 +61,10 @@ export default {
         };
       }
 
-      // 3. CORSヘッダーを付けてレスポンスを返す（残り回数 remaining も含める）
+      // 3. CORSヘッダーを付けてレスポンス（残り回数 19, 18 ... を返却）
       return new Response(JSON.stringify({
         success: true,
-        remaining: 18, // 実際のKV等の残数をセット
+        remaining: 18, // ※KV等で回数管理している場合はその変数を指定
         data: resultData
       }), {
         status: 200,
