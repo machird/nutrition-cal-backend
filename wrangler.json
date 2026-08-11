@@ -2,11 +2,5 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "nutritioncal-app",
   "main": "workers.js",
-  "compatibility_date": "2024-01-01",
-  "kv_namespaces": [
-    {
-      "binding": "LIMIT_KV",
-      "id": "a707f5e2624542fb816cb4342e0dd"
-    }
-  ]
+  "compatibility_date": "2024-01-01"
 }
