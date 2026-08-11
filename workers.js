@@ -1,6 +1,6 @@
 export default {
   async fetch(request, env, ctx) {
-    // 1. 全すべての応答に付与する CORS ヘッダー
+    // 1. すべての応答に付与する CORS ヘッダー
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -16,7 +16,7 @@ export default {
       });
     }
 
-    // 3. 安全な JSON 応答ヘッダー作成関数（エラー時も確実にCORSを維持）
+    // 3. 安全な JSON 応答ヘッダー作成関数
     const sendJson = (data, status = 200) => {
       return new Response(JSON.stringify(data), {
         status,
@@ -32,7 +32,6 @@ export default {
         return sendJson({ error: 'Method not allowed' }, 405);
       }
 
-      // 送信データの安全な読み込み
       let body;
       try {
         body = await request.json();
@@ -42,7 +41,7 @@ export default {
 
       const mode = body.mode || 'general';
 
-      // 4. 回数制限（KVが設定されていなくても絶対にエラーで落ちない安全設計）
+      // 4. 回数制限（安全設計）
       const today = new Date().toISOString().split('T')[0];
       const clientIp = request.headers.get('CF-Connecting-IP') || 'anonymous';
       const kvKey = `quota_${today}_${clientIp}`;
@@ -65,123 +64,100 @@ export default {
         }
       }
 
-      // 5. 栄養計算ロジック
+      // 5. 栄養計算ロジック（★フロントエンドの最新ルールと完全同期）
       let resultData = {};
 
+      // 共通計算（BMI, 基準体重, 肥満補正）
+      const gender = Number(body.gender);
+      const age = Number(body.age);
+      const height = Number(body.height);
+      const weight = Number(body.weight);
+      
+      const heightM = height / 100;
+      const bmi = weight / (heightM * heightM);
+      const ibw = heightM * heightM * 22; // 基準体重(BMI22)
+
+      // 年齢による低栄養判定基準 (70歳以上はBMI20未満、未満は18.5未満)
+      let yaseThreshold = age >= 70 ? 20.0 : 18.5;
+      let isYase = bmi < yaseThreshold;
+
+      // 肥満補正による計算用体重の決定
+      let calcWeight = weight;
+      if (bmi >= 30.0) {
+        calcWeight = ibw + 0.25 * (weight - ibw); // 補正体重
+      } else if (bmi >= 25.0) {
+        calcWeight = ibw; // BMI25～29.9は標準体重
+      }
+
+      // 基礎代謝量計算 (Ganpule式)
+      let bmrFormula = 0;
+      if (gender === 1) { // 男性
+        bmrFormula = (0.0481 * calcWeight) + (0.0234 * height) - (0.0138 * age) - 0.4235;
+      } else { // 女性
+        bmrFormula = (0.0357 * calcWeight) + (0.0225 * height) - (0.0138 * age) - 0.3933;
+      }
+      const bmr = Math.round((bmrFormula * 1000) / 4.184);
+
+
       if (mode === 'general') {
-        const gender = Number(body.gender);   // 1: 男性, 2: 女性
-        const age = Number(body.age);
-        const height = Number(body.height);
-        const weight = Number(body.weight);
-        const activity = Number(body.activity); // 1.2, 1.3, 1.5, 1.7 など
+        const activity = Number(body.activity);
         const stress = Number(body.stress);
+        const targetWeight = body.targetWeight ? Number(body.targetWeight) : null;
+        const months = body.months ? Number(body.months) : 3;
 
-        const heightM = height / 100;
-        const bmi = weight / (heightM * heightM);
-        const isUnderweight = bmi < 20.0;
-
-        // 基準体重 (IBW)
-        const ibw = Math.pow(heightM, 2) * 22;
-        // BMI < 20 の場合は IBW で計算、それ以外は現在体重を採用
-        const calcWeight = isUnderweight ? ibw : weight;
-
-        // Ganpule（厳プレ）式（2018年）基礎代謝量 (kcal/日)
-        const bmrFormula = 0.1238 + (0.0481 * calcWeight) + (0.0234 * height) - (0.0138 * age) - (0.5473 * gender);
-        const bmr = Math.max(0, (bmrFormula * 1000) / 4.186);
-
-        // 総エネルギー消費量 (TEE)
-        const energy = bmr * activity * stress;
-
-        // 【ご指定のタンパク質必要量条件】
-        // 1.5g / kg: 活動レベル「高い（1.7以上）」
-        // 1.1g / kg: 活動レベル「低い〜普通（1.2超 〜 1.7未満）」
-        // 1.0g / kg: 活動レベル「寝たきり（1.2以下）」
-        let proteinFactor = 1.1;
-        if (activity >= 1.7) {
-          proteinFactor = 1.5;
-        } else if (activity <= 1.2) {
-          proteinFactor = 1.0;
+        // エネルギー計算
+        let energy = bmr * activity * stress;
+        if (targetWeight && targetWeight !== weight) {
+          const dailyAdjust = Math.round(((targetWeight - weight) * 7200) / (months * 30));
+          energy += dailyAdjust;
         }
 
-        // 一般モードでも BMI < 20 に関しては自動調整（低栄養保護のため最低 1.2g/kg IBW 以上）
-        if (isUnderweight) {
-          proteinFactor = Math.max(proteinFactor, 1.2);
+        // タンパク質係数
+        let pFactor = 1.0;
+        if (activity >= 1.7) pFactor = 1.5;
+        else if (activity >= 1.3) pFactor = 1.1;
+
+        // 低栄養保護引き上げ
+        if (isYase && pFactor < 1.2) {
+          pFactor = 1.2;
         }
+        const protein = calcWeight * pFactor;
 
-        const protein = calcWeight * proteinFactor;
-
-        // 必要水分量目安 (65歳以上: 30ml/kg, 65歳未満: 35ml/kg)
-        const waterFactor = age >= 65 ? 30 : 35;
-        const water = calcWeight * waterFactor;
-
-        let waterNote = `※年齢(${age}歳)に応じた標準水分補給目安です。`;
-        if (isUnderweight) {
-          waterNote += ` (BMI ${bmi.toFixed(1)}: 低栄養保護のため基準体重${ibw.toFixed(1)}kg・タンパク質${proteinFactor}g/kgで算出)`;
-        }
+        // 水分量
+        const waterFactor = age >= 75 ? 25 : (age >= 65 ? 30 : 35);
+        const water = Math.round(weight * waterFactor); // 水分量は現体重ベース
 
         resultData = {
           energy: Math.round(energy),
           protein: protein.toFixed(1),
-          water: Math.round(water),
-          waterNote: waterNote,
-          bmrWarning: energy < (bmr * 0.9)
+          water: water,
+          bmrWarning: energy < bmr
         };
 
-      } else {
-        // CKD (慢性腎臓病) モード
-        const gender = body.gender;
-        const age = Number(body.age);
-        const height = Number(body.height);
-        const weight = Number(body.weight);
+      } else { // CKD (慢性腎臓病) モード
         const stage = Number(body.stage); // 1: G1-G2, 2: G3a, 3: G3b-G5
         const hasEdema = Boolean(body.hasEdema);
         const kcalPerKg = Number(body.kcalPerKg);
         const stress = Number(body.stress);
 
-        const heightM = height / 100;
-        const bmi = weight / (heightM * heightM);
-        const ibw = Math.pow(heightM, 2) * 22;
+        const energy = Math.round(calcWeight * kcalPerKg * stress);
 
-        const isSenior = age >= 65;
-        const minBmi = isSenior ? 21.5 : 20.0;
-        const maxBmi = 24.9;
-        const useIbw = (bmi < minBmi || bmi > maxBmi);
-        const targetCalcWeight = useIbw ? ibw : weight;
-
-        // CKD タンパク質指定係数の自動調整 (BMI < 20 優先)
-        let pFactor = 1.0;
-        if (bmi < 18.0) {
-          pFactor = 1.2;
-        } else if (bmi >= 18.0 && bmi < 19.0) {
-          pFactor = 1.0;
-        } else if (bmi >= 19.0 && bmi < 20.0) {
-          pFactor = 0.9;
-        } else {
-          if (stage === 3) pFactor = 0.7;
-          else if (stage === 2) pFactor = 0.9;
-          else pFactor = 1.1;
+        // CKDタンパク質係数（通常時と低栄養時）
+        let pFactor = stage === 3 ? 0.7 : (stage === 2 ? 0.9 : 1.0);
+        if (isYase) {
+          if (stage === 3) pFactor = 0.9;
+          else if (stage === 2) pFactor = 1.0;
+          else pFactor = 1.2;
         }
+        const protein = calcWeight * pFactor;
 
-        const energy = targetCalcWeight * kcalPerKg * stress;
-        const protein = targetCalcWeight * pFactor;
-
-        let waterFactor = isSenior ? 30 : 35;
-        if (hasEdema) {
-          waterFactor = 25;
-        }
-        const water = targetCalcWeight * waterFactor;
-
-        let waterNote = hasEdema
-          ? "※高度浮腫・心負荷考慮の制限適用（25ml/kg）"
-          : "※CKD標準水分目安（過度な脱水防止）";
+        // 水分量（高度浮腫時は現体重×20、それ以外は現体重×25）
+        const water = Math.round(hasEdema ? weight * 20 : weight * 25);
 
         resultData = {
-          ibwText: targetCalcWeight.toFixed(1),
-          pFactorText: pFactor.toFixed(1),
-          energy: Math.round(energy),
+          energy: energy,
           protein: protein.toFixed(1),
-          water: Math.round(water),
-          waterNote: waterNote
+          water: water
         };
       }
 
@@ -205,7 +181,6 @@ export default {
       });
 
     } catch (globalErr) {
-      // どのような内部エラーが起きてもCORSヘッダーを維持してエラー内容をJSONで返す
       return sendJson({
         error: `Worker内部処理エラー: ${globalErr.message}`
       }, 500);
