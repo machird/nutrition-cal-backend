@@ -1,14 +1,14 @@
 export default {
   async fetch(request, env, ctx) {
-    // 1. すべての応答に付与する CORS ヘッダー
+    // 1. CORSヘッダー定義
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
+      'Access-Control-Allow-Headers': '*',
       'Access-Control-Max-Age': '86400',
     };
 
-    // 2. プリフライト（OPTIONS）リクエストへの即時許可応答（204）
+    // 2. ブラウザからの事前確認（OPTIONS）にヘッダー付きで即答
     if (request.method === 'OPTIONS') {
       return new Response(null, {
         status: 204,
@@ -16,7 +16,6 @@ export default {
       });
     }
 
-    // 3. 安全な JSON 応答ヘッダー作成関数
     const sendJson = (data, status = 200) => {
       return new Response(JSON.stringify(data), {
         status,
@@ -29,19 +28,19 @@ export default {
 
     try {
       if (request.method !== 'POST') {
-        return sendJson({ error: 'Method not allowed' }, 405);
+        return sendJson({ message: 'Nutritional Cal API is running' }, 200);
       }
 
       let body;
       try {
         body = await request.json();
       } catch (e) {
-        return sendJson({ error: 'リクエストデータ(JSON)の形式が正しくありません。' }, 400);
+        return sendJson({ error: '無効なJSONです。' }, 400);
       }
 
       const mode = body.mode || 'general';
 
-      // 4. 回数制限（安全設計）
+      // 3. 回数制限（KV）処理
       const today = new Date().toISOString().split('T')[0];
       const clientIp = request.headers.get('cf-connecting-ip') || 'anonymous';
       const kvKey = `quota_${today}_${clientIp}`;
@@ -64,10 +63,8 @@ export default {
         }
       }
 
-      // 5. 栄養計算ロジック（★フロントエンドの最新ルールと完全同期）
+      // 4. 計算ロジック
       let resultData = {};
-
-      // 共通計算（BMI, 基準体重, 肥満補正）
       const gender = Number(body.gender);
       const age = Number(body.age);
       const height = Number(body.height);
@@ -75,29 +72,25 @@ export default {
       
       const heightM = height / 100;
       const bmi = weight / (heightM * heightM);
-      const ibw = heightM * heightM * 22; // 基準体重(BMI22)
+      const ibw = heightM * heightM * 22;
 
-      // 年齢による低栄養判定基準 (70歳以上はBMI20未満、未満は18.5未満)
       let yaseThreshold = age >= 70 ? 20.0 : 18.5;
       let isYase = bmi < yaseThreshold;
 
-      // 肥満補正による計算用体重の決定
       let calcWeight = weight;
       if (bmi >= 30.0) {
-        calcWeight = ibw + 0.25 * (weight - ibw); // 補正体重
+        calcWeight = ibw + 0.25 * (weight - ibw);
       } else if (bmi >= 25.0) {
-        calcWeight = ibw; // BMI25～29.9は標準体重
+        calcWeight = ibw;
       }
 
-      // 基礎代謝量計算 (Ganpule式)
       let bmrFormula = 0;
-      if (gender === 1) { // 男性
+      if (gender === 1) {
         bmrFormula = (0.0481 * calcWeight) + (0.0234 * height) - (0.0138 * age) - 0.4235;
-      } else { // 女性
+      } else {
         bmrFormula = (0.0357 * calcWeight) + (0.0225 * height) - (0.0138 * age) - 0.3933;
       }
       const bmr = Math.round((bmrFormula * 1000) / 4.184);
-
 
       if (mode === 'general') {
         const activity = Number(body.activity);
@@ -105,27 +98,22 @@ export default {
         const targetWeight = body.targetWeight ? Number(body.targetWeight) : null;
         const months = body.months ? Number(body.months) : 3;
 
-        // エネルギー計算
         let energy = bmr * activity * stress;
         if (targetWeight && targetWeight !== weight) {
           const dailyAdjust = Math.round(((targetWeight - weight) * 7200) / (months * 30));
           energy += dailyAdjust;
         }
 
-        // タンパク質係数
         let pFactor = 1.0;
         if (activity >= 1.7) pFactor = 1.5;
         else if (activity >= 1.3) pFactor = 1.1;
 
-        // 低栄養保護引き上げ
         if (isYase && pFactor < 1.2) {
           pFactor = 1.2;
         }
         const protein = calcWeight * pFactor;
-
-        // 水分量
         const waterFactor = age >= 75 ? 25 : (age >= 65 ? 30 : 35);
-        const water = Math.round(weight * waterFactor); // 水分量は現体重ベース
+        const water = Math.round(weight * waterFactor);
 
         resultData = {
           energy: Math.round(energy),
@@ -134,15 +122,14 @@ export default {
           bmrWarning: energy < bmr
         };
 
-      } else { // CKD (慢性腎臓病) モード
-        const stage = Number(body.stage); // 1: G1-G2, 2: G3a, 3: G3b-G5
+      } else {
+        const stage = Number(body.stage);
         const hasEdema = Boolean(body.hasEdema);
         const kcalPerKg = Number(body.kcalPerKg);
         const stress = Number(body.stress);
 
         const energy = Math.round(calcWeight * kcalPerKg * stress);
 
-        // CKDタンパク質係数（通常時と低栄養時）
         let pFactor = stage === 3 ? 0.7 : (stage === 2 ? 0.9 : 1.0);
         if (isYase) {
           if (stage === 3) pFactor = 0.9;
@@ -150,8 +137,6 @@ export default {
           else pFactor = 1.2;
         }
         const protein = calcWeight * pFactor;
-
-        // 水分量（高度浮腫時は現体重×20、それ以外は現体重×25）
         const water = Math.round(hasEdema ? weight * 20 : weight * 25);
 
         resultData = {
@@ -161,7 +146,7 @@ export default {
         };
       }
 
-      // KV への回数保存
+      // 5. カウント保存 (KV)
       if (env && env.LIMIT_KV && typeof env.LIMIT_KV.put === 'function') {
         try {
           const newCount = currentCount + 1;
@@ -182,7 +167,7 @@ export default {
 
     } catch (globalErr) {
       return sendJson({
-        error: `Worker内部処理エラー: ${globalErr.message}`
+        error: `Worker内部エラー: ${globalErr.message}`
       }, 500);
     }
   }
