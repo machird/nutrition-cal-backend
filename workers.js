@@ -43,7 +43,7 @@ export default {
 
       // 4. 回数制限（安全設計）
       const today = new Date().toISOString().split('T')[0];
-      const clientIp = request.headers.get('CF-Connecting-IP') || 'anonymous';
+      const clientIp = request.headers.get('cf-connecting-ip') || 'anonymous';
       const kvKey = `quota_${today}_${clientIp}`;
 
       let currentCount = 0;
