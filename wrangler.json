@@ -1,7 +1,12 @@
-name = "nutritioncal-app"
-main = "src/index.js" # または index.js など環境に合わせる
-compatibility_date = "2024-01-01"
-
-[[kv_namespaces]]
-binding = "NUTRITION_KV"
-id = "ここにKVのIDを貼る"
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "nutritioncal-app",
+  "main": "worker.js",
+  "compatibility_date": "2024-01-01",
+  "kv_namespaces": [
+    {
+      "binding": "NUTRITION_KV",
+      "id": "00882c282e4545bb83d204e6cc0ef453"
+    }
+  ]
+}
